@@ -13,7 +13,7 @@
 
 ## Инструменты
 
-- [go-udev](https://fastapi.tiangolo.com/)
+- [go-udev](https://pkg.go.dev/github.com/jochenvg/go-udev)
 
 ## Требования
 
