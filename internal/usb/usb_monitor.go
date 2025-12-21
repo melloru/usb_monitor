@@ -29,7 +29,9 @@ func MonitorUSBInsertions() error {
 			if dev == nil || strings.ToLower(dev.PropertyValue("ID_BUS")) != "usb" {
 				continue
 			}
-			HandleUSBDevice(dev)
+			if dev.Action() == "add" {
+				HandleUSBDevice(dev)
+			}
 
 		case err := <-errCh:
 			if err != nil {

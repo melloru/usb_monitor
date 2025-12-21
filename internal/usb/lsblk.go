@@ -8,6 +8,22 @@ import (
 	"strings"
 )
 
+func getChildrenInfo(children []interface{}, field string) string {
+	for _, child := range children {
+		childMap := child.(map[string]interface{})
+		val, exists := childMap[strings.ToLower(field)]
+
+		if exists && val != nil {
+			strVal := fmt.Sprintf("%v", val)
+
+			if strVal != "" && strVal != "null" {
+				return strVal
+			}
+		}
+	}
+	return ""
+}
+
 func sumChildrenFsused(children []interface{}) string {
 	var total int64 = 0
 
@@ -37,7 +53,11 @@ func sumChildrenFsused(children []interface{}) string {
 
 func LsblkInfo(devnode string, fields []string) (map[string]string, error) {
 	fieldStr := strings.Join(fields, ",")
-	out, err := exec.Command("lsblk", "-J", "-b", "-o", fieldStr, devnode).Output()
+
+	cmdStr := fmt.Sprintf("lsblk -J -b -o %s %s", fieldStr, devnode)
+	cmd := exec.Command("bash", "-c", cmdStr)
+
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
@@ -57,17 +77,43 @@ func LsblkInfo(devnode string, fields []string) (map[string]string, error) {
 	dev := parsed.Blockdevices[0]
 	result := make(map[string]string)
 
+	children, hasChildren := dev["children"]
+	var childrenSlice []interface{}
+	if hasChildren && children != nil {
+		childrenSlice = children.([]interface{})
+	}
+
 	for _, f := range fields {
 		key := strings.ToLower(f)
 
 		if key == "fsused" {
-			if children, exists := dev["children"]; exists && children != nil {
-				childrenSlice := children.([]interface{})
-				if len(childrenSlice) > 0 {
-					result[f] = sumChildrenFsused(childrenSlice)
-					continue
-				}
+			if hasChildren && len(childrenSlice) > 0 {
+				fsusedBytes := sumChildrenFsused(childrenSlice)
+				fsusedGB := FormatBytesToGB(fsusedBytes)
+				result[f] = fsusedGB
+				continue
 			}
+			result[f] = "0 GB"
+			continue
+		}
+		if key == "uuid" {
+			if hasChildren && len(childrenSlice) > 0 {
+				result[f] = getChildrenInfo(childrenSlice, f)
+				continue
+			}
+			result[f] = ""
+			continue
+		}
+
+		if key == "size" {
+			if sizeVal, ok := dev["size"]; ok && sizeVal != nil {
+				sizeStr := fmt.Sprintf("%v", sizeVal)
+				sizeGB := FormatBytesToGB(sizeStr)
+				result[f] = sizeGB
+				continue
+			}
+			result[f] = "0 GB"
+			continue
 		}
 
 		val, ok := dev[key]

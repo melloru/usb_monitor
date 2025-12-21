@@ -1,18 +1,51 @@
 package usb
 
 import (
+	"encoding/json"
 	"fmt"
-	"strconv"
+	"os/exec"
 	"time"
 
 	"github.com/jochenvg/go-udev"
 )
 
-func HandleUSBDevice(dev *udev.Device) {
-	if dev.Action() != "add" {
-		return
+func PollForMountpoint(devnode string, attempts int) (string, error) {
+
+	for i := 0; i < attempts; i++ {
+		cmdStr := fmt.Sprintf("lsblk -J -o MOUNTPOINT %s", devnode)
+		cmd := exec.Command("bash", "-c", cmdStr)
+
+		output, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+
+		var result struct {
+			Blockdevices []struct {
+				Mountpoint string `json:"mountpoint"`
+			} `json:"blockdevices"`
+		}
+
+		if err := json.Unmarshal(output, &result); err != nil {
+			return "", err
+		}
+
+		if len(result.Blockdevices) > 1 {
+			for i := 1; i < len(result.Blockdevices); i++ {
+				mp := result.Blockdevices[i].Mountpoint
+				if mp != "" && mp != "null" {
+					return mp, nil
+				}
+			}
+		}
+
+		time.Sleep(500 * time.Millisecond)
 	}
 
+	return "", fmt.Errorf("таймаут ожидания монтирования")
+}
+
+func HandleUSBDevice(dev *udev.Device) {
 	fmt.Println("\n=== USB EVENT ===")
 	fmt.Println("Device:", dev.Devnode())
 	fmt.Println("Model:", dev.PropertyValue("ID_MODEL"))
@@ -20,31 +53,47 @@ func HandleUSBDevice(dev *udev.Device) {
 	fmt.Println("Serial:", dev.PropertyValue("ID_SERIAL_SHORT"))
 
 	fmt.Println("=== LSBLK INFO ===")
-	for attempt := 1; attempt <= 10; attempt++ {
-		fmt.Printf("Попытка %v...\n", attempt)
 
-		fields := []string{"NAME", "SIZE", "FSUSED", "MOUNTPOINT"}
-		info, err := LsblkInfo(dev.Devnode(), fields)
-		if err != nil {
-			fmt.Println("Ошибка:", err)
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
+	mountpoint, err := PollForMountpoint(dev.Devnode(), 10)
 
-		if info["FSUSED"] != "" && info["FSUSED"] != "0" {
-			size, _ := strconv.ParseFloat(info["SIZE"], 64)
-			used, _ := strconv.ParseFloat(info["FSUSED"], 64)
-
-			sizeGB := ParseBytesToGB(size)
-			usedGB := ParseBytesToGB(used)
-
-			fmt.Printf("Размер: %.2f GB\n", sizeGB)
-			fmt.Printf("Занято: %.2f GB\n", usedGB)
-			return
-		}
-
-		time.Sleep(500 * time.Millisecond)
+	if err != nil {
+		fmt.Printf("Mount timeout: %v\n", err)
+	} else {
+		fmt.Printf("Mounted at: %s\n", mountpoint)
 	}
 
-	fmt.Println("Не удалось получить данные об использовании (устройство не смонтировано?)")
+	fields := []string{"NAME", "SIZE", "FSUSED", "UUID"}
+
+	info, err := LsblkInfo(dev.Devnode(), fields)
+	if err != nil {
+		fmt.Println("Ошибка:", err)
+	}
+
+	for _, f := range fields {
+		val := info[f]
+		fmt.Printf("%s: %s\n", f, val)
+	}
+
+	if uuid := info["UUID"]; uuid != "" {
+		fmt.Println("=== CSP CONTAINERS ===")
+
+		containers, _ := FindCSPContainersByUUID(uuid)
+		if len(containers) == 0 {
+			fmt.Println("Нет контейнеров CSP на этой флешке")
+		} else {
+			fmt.Printf("Найдено контейнеров: %d\n", len(containers))
+			for i, container := range containers {
+				fmt.Printf("%d. %s\n", i+1, container)
+			}
+		}
+
+		fmt.Println("=== CSP CONTAINERS INFO ===")
+		if len(containers) > 0 {
+			for _, container := range containers {
+				containerInfo := getKeyAndCertInfo(container)
+				fmt.Printf("Контейнер: %s\n%s", container, containerInfo)
+			}
+		}
+	}
+
 }

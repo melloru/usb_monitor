@@ -1,11 +1,24 @@
 package usb
 
+import (
+	"fmt"
+	"strconv"
+)
+
 const bytesInGB = 1024.0 * 1024.0 * 1024.0
 
-func ParseBytesToGB(val float64) float64 {
-	if val == 0 {
-		return 0
+func FormatBytesToGB(bytesStr string) string {
+	if bytesStr == "" {
+		return "0"
 	}
 
-	return val / bytesInGB
+	bytes, err := strconv.ParseFloat(bytesStr, 64)
+
+	if err != nil {
+		return "0"
+	}
+
+	gb := bytes / bytesInGB
+
+	return fmt.Sprintf("%.0f GB", gb)
 }
