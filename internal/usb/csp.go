@@ -50,7 +50,7 @@ func FindCSPContainersByUUID(uuid string) ([]string, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("ошибка CSP: %v, вывод: %s", err, output)
+		return nil, fmt.Errorf("ошибка CSP: %w, вывод: %s", err, output)
 	}
 
 	var containers []string
